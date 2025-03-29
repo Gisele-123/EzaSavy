@@ -1,83 +1,161 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+const API_URL = 'http://192.168.120.231:5000';
+
+type WeatherData = {
+  current: {
+    date: string;
+    rainfall: number;
+    temperature: number;
+  };
+  forecast: Array<{
+    Day: string;
+    'Rainfall (mm)': number;
+    'Temperature (°C)': number;
+    index: number;
+  }>;
+  success: boolean;
+};
 
 export default function WeatherScreen() {
-  // Mock weather data
-  const currentWeather = {
-    temperature: 25,
-    condition: 'Sunny',
-    humidity: 65,
-    windSpeed: 12,
-    location: 'Kigali, Rwanda',
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const formatNumber = (num: number) => {
+    return Number(num).toFixed(2);
   };
 
-  const forecast = [
-    { day: 'Today', temp: 25, condition: 'Sunny' },
-    { day: 'Tomorrow', temp: 23, condition: 'Partly Cloudy' },
-    { day: 'Wed', temp: 22, condition: 'Rainy' },
-    { day: 'Thu', temp: 24, condition: 'Cloudy' },
-    { day: 'Fri', temp: 26, condition: 'Sunny' },
-  ];
+  const fetchWeatherData = async () => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/weather_forecast`);
+      const data = await response.json();
+      
+      console.log('Weather API Response:', data);
+
+      if (data.success && data.current && data.forecast) {
+        setWeatherData(data);
+      } else {
+        console.error('Invalid data structure:', data);
+        throw new Error('Invalid weather data format');
+      }
+    } catch (error) {
+      console.error('Error fetching weather:', error);
+      setError('Failed to load weather data. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWeatherData();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchWeatherData();
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="wb-sunny" size={48} color="#FFA000" />
+          <Text style={styles.loadingText}>Loading weather data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color="#FF5252" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchWeatherData}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container}>
-      <Animated.View 
-        entering={FadeIn}
-        style={styles.header}
+    <SafeAreaView style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
-        <Text style={styles.title}>Weather Forecast</Text>
-        <Text style={styles.subtitle}>{currentWeather.location}</Text>
-      </Animated.View>
-
-      <Animated.View 
-        entering={FadeInDown.delay(200)}
-        style={styles.currentWeather}
-      >
-        <BlurView intensity={20} style={styles.currentWeatherCard}>
-          <Text style={styles.temperature}>{currentWeather.temperature}°C</Text>
-          <Text style={styles.condition}>{currentWeather.condition}</Text>
-          <View style={styles.weatherDetails}>
-            <View style={styles.detailItem}>
-              <MaterialIcons name="water-drop" size={24} color="#4CAF50" />
-              <Text style={styles.detailText}>{currentWeather.humidity}%</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <MaterialIcons name="air" size={24} color="#4CAF50" />
-              <Text style={styles.detailText}>{currentWeather.windSpeed} km/h</Text>
-            </View>
-          </View>
-        </BlurView>
-      </Animated.View>
-
-      <Animated.View 
-        entering={FadeInDown.delay(400)}
-        style={styles.forecastContainer}
-      >
-        <Text style={styles.forecastTitle}>5-Day Forecast</Text>
-        {forecast.map((day, index) => (
-          <Animated.View 
-            key={day.day}
-            entering={FadeInDown.delay(600 + index * 100)}
-            style={styles.forecastItem}
-          >
-            <BlurView intensity={20} style={styles.forecastCard}>
-              <Text style={styles.forecastDay}>{day.day}</Text>
-              <MaterialIcons 
-                name={day.condition === 'Sunny' ? 'wb-sunny' : 
-                      day.condition === 'Rainy' ? 'grain' : 
-                      'cloud'} 
-                size={24} 
-                color="#4CAF50" 
-              />
-              <Text style={styles.forecastTemp}>{day.temp}°C</Text>
+        <Animated.View 
+          entering={FadeIn}
+          style={styles.content}
+        >
+          {weatherData?.current && (
+            <BlurView intensity={20} style={styles.currentWeatherCard}>
+              <Text style={styles.cardTitle}>Current Weather</Text>
+              <View style={styles.currentWeatherContent}>
+                <MaterialIcons 
+                  name="wb-sunny"
+                  size={64} 
+                  color="#FFA000" 
+                />
+                <Text style={styles.temperature}>
+                  {formatNumber(weatherData.current.temperature)}°C
+                </Text>
+                <Text style={styles.conditions}>
+                  {weatherData.current.date}
+                </Text>
+                <View style={styles.weatherDetails}>
+                  <View style={styles.detailItem}>
+                    <MaterialIcons name="grain" size={24} color="#2196F3" />
+                    <Text style={styles.detailText}>
+                      {formatNumber(weatherData.current.rainfall)} mm
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </BlurView>
-          </Animated.View>
-        ))}
-      </Animated.View>
-    </ScrollView>
+          )}
+
+          {weatherData?.forecast && weatherData.forecast.length > 0 && (
+            <BlurView intensity={20} style={styles.forecastCard}>
+              <Text style={styles.cardTitle}>5-Day Forecast</Text>
+              <View style={styles.forecastList}>
+                {weatherData.forecast.map((day, index) => (
+                  <View key={index} style={styles.forecastItem}>
+                    <Text style={styles.forecastDate}>{day.Day}</Text>
+                    <MaterialIcons 
+                      name="wb-sunny"
+                      size={32} 
+                      color="#FFA000" 
+                    />
+                    <View style={styles.forecastDetails}>
+                      <Text style={styles.forecastTemp}>
+                        {formatNumber(day['Temperature (°C)'])}°C
+                      </Text>
+                      <Text style={styles.forecastRainfall}>
+                        {formatNumber(day['Rainfall (mm)'])} mm
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </BlurView>
+          )}
+        </Animated.View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -86,83 +164,118 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  header: {
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 8,
-  },
-  subtitle: {
+  loadingText: {
     fontSize: 16,
-    color: '#757575',
+    color: '#666666',
+    marginTop: 16,
   },
-  currentWeather: {
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#FF5252',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: {
     padding: 16,
   },
   currentWeatherCard: {
-    borderRadius: 16,
     padding: 20,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    marginBottom: 16,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 16,
+  },
+  currentWeatherContent: {
     alignItems: 'center',
   },
   temperature: {
     fontSize: 48,
     fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 8,
+    color: '#333333',
+    marginVertical: 8,
   },
-  condition: {
-    fontSize: 20,
-    color: '#757575',
+  conditions: {
+    fontSize: 18,
+    color: '#666666',
     marginBottom: 16,
   },
   weatherDetails: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
+    marginTop: 16,
   },
   detailItem: {
     alignItems: 'center',
   },
   detailText: {
-    fontSize: 16,
-    color: '#757575',
+    fontSize: 14,
+    color: '#666666',
     marginTop: 4,
   },
-  forecastContainer: {
-    padding: 16,
+  forecastCard: {
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
-  forecastTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#4CAF50',
-    marginBottom: 16,
+  forecastList: {
+    marginTop: 16,
   },
   forecastItem: {
-    marginBottom: 12,
-  },
-  forecastCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
-  forecastDay: {
+  forecastDate: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#4CAF50',
-    width: 80,
+    color: '#333333',
+    flex: 1,
+  },
+  forecastDetails: {
+    alignItems: 'center',
+    marginHorizontal: 16,
   },
   forecastTemp: {
     fontSize: 16,
-    color: '#757575',
-    width: 60,
-    textAlign: 'right',
+    fontWeight: '600',
+    color: '#333333',
+  },
+  forecastRainfall: {
+    fontSize: 14,
+    color: '#2196F3',
   },
 }); 

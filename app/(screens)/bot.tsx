@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
   },
   recordingButton: {
     backgroundColor: '#F44336',
-    animation: 'pulse 1s infinite',
+    transform: [{ scale: 1 }], // Using transform instead of animation for React Native
   },
   input: {
     flex: 1,

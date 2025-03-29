@@ -109,7 +109,7 @@ export default function HomeScreen() {
               style={styles.profileButton}
               onPress={() => router.push('/(tabs)/profile')}
             >
-              <Image 
+        <Image
                 source={require('../../assets/images/profile-placeholder.png')}
                 style={styles.profileImage}
               />
