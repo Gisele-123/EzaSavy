@@ -109,7 +109,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/(tabs)/profile')}
             >
         <Image
-                source={require('../../assets/images/profile-placeholder.png')}
+                source={require('../../assets/images/profile.jpg')}
                 style={styles.profileImage}
               />
             </TouchableOpacity>

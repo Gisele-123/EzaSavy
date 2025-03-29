@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import ProfilePlaceholder from '../../components/ProfilePlaceholder';
@@ -24,10 +24,12 @@ export default function ProfileScreen() {
 
       <ScrollView style={styles.content}>
         <View style={styles.profileSection}>
-          <ProfilePlaceholder size={80} />
+          <Image source={require('../../assets/images/profile.jpg')} style={{ width: 52,
+    height: 52,
+    borderRadius: 18,}}/>
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>John Doe</Text>
-            <Text style={styles.email}>john.doe@example.com</Text>
+            <Text style={styles.name}>Gisele Akuzwe M.</Text>
+            <Text style={styles.email}>giselemigisha53@gmail.com</Text>
             <Text style={styles.location}>Kigali, Rwanda</Text>
           </View>
         </View>

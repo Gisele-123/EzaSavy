@@ -1,12 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, TextInput, ScrollView } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Image, 
+  Alert, 
+  TextInput, 
+  ScrollView,
+  PermissionsAndroid,
+  Platform
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const API_URL = 'http://192.168.120.231:5000'; // Change to your backend IP
+const API_URL = 'http://192.168.120.231:5000';
 
 type PlantRecommendation = {
   plant: string;
@@ -49,7 +62,6 @@ const SOIL_TYPES: SoilType[] = [
   },
 ];
 
-// Color mapping from text descriptions to RGB values
 const COLOR_MAPPING: Record<string, [number, number, number]> = {
   'black': [120, 80, 50],
   'gray': [180, 150, 100],
@@ -72,10 +84,40 @@ export default function SoilScanScreen() {
   const [lightHours, setLightHours] = useState('10');
   const [activeTab, setActiveTab] = useState<'image' | 'text' | 'voice'>('image');
   const [soilDescription, setSoilDescription] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
 
   useEffect(() => {
     fetchWeatherData();
+    requestMicrophonePermission();
+    return () => {
+      if (recording) {
+        recording.stopAndUnloadAsync();
+      }
+    };
   }, []);
+
+  const requestMicrophonePermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Microphone Permission',
+            message: 'EzaSavvy needs access to your microphone for voice input',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.error('Failed to request microphone permission:', err);
+        return false;
+      }
+    }
+    return true;
+  };
 
   const fetchWeatherData = async () => {
     try {
@@ -117,7 +159,6 @@ export default function SoilScanScreen() {
   };
 
   const selectSoilType = async (colorDesc?: string): Promise<SoilType> => {
-    // If we have a color description, try to match it first
     if (colorDesc) {
       const lowerDesc = colorDesc.toLowerCase();
       for (const [colorName, rgb] of Object.entries(COLOR_MAPPING)) {
@@ -134,7 +175,6 @@ export default function SoilScanScreen() {
       }
     }
 
-    // Fall back to manual selection if no match found
     const soil = await new Promise<SoilType>((resolve) => {
       Alert.alert(
         'Select Soil Type',
@@ -174,10 +214,9 @@ export default function SoilScanScreen() {
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Add Kinyarwanda translations to recommendations
         const recommendationsWithTranslation = data.recommendations.map((rec: PlantRecommendation) => ({
           ...rec,
-          kinyarwandaName: translateToKinyarwanda(rec.plant) // This would call your translation service
+          kinyarwandaName: translateToKinyarwanda(rec.plant)
         }));
         
         setRecommendations(recommendationsWithTranslation);
@@ -196,14 +235,14 @@ export default function SoilScanScreen() {
     }
   };
 
-  // Mock translation function - replace with actual API call
   const translateToKinyarwanda = (text: string): string => {
-    // In a real app, you would call your translation API here
     const translations: Record<string, string> = {
       'maize': 'Ibigori',
       'beans': 'Ibishyimbo',
       'wheat': 'Ingano',
-      'rice': 'Umuceri'
+      'rice': 'Umuceri',
+      'potato': 'Ibirayi',
+      'sorghum': 'Amasaka'
     };
     return translations[text.toLowerCase()] || text;
   };
@@ -226,7 +265,6 @@ export default function SoilScanScreen() {
       return;
     }
 
-    // Try to match the description to a known color
     const lowerDesc = soilDescription.toLowerCase();
     let matchedRGB: [number, number, number] | null = null;
 
@@ -247,32 +285,125 @@ export default function SoilScanScreen() {
     }
   };
 
-  const handleVoiceInputSubmit = async () => {
-    Alert.alert('Info', 'Voice input will be processed here');
-    const soil = await selectSoilType();
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      setRecording(recording);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      Alert.alert('Error', 'Failed to start recording. Please check microphone permissions.');
+    }
+  };
+
+  const stopRecording = async () => {
+    setIsRecording(false);
+    if (!recording) return;
+
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+
+      // Here you would send the recording to your backend for processing
+      // For now, we'll simulate voice recognition with a prompt
+      simulateVoiceRecognition();
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+    }
+  };
+
+  const simulateVoiceRecognition = () => {
+    Alert.prompt(
+      'Voice Input',
+      'Enter what you said about your soil color (simulated voice recognition)',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Submit',
+          onPress: (text) => {
+            if (text) {
+              setSoilDescription(text);
+              handleVoiceInputSubmit(text);
+            }
+          },
+        },
+      ],
+      'plain-text'
+    );
+  };
+
+  const handleVoiceInputSubmit = async (voiceText?: string) => {
+    if (!voiceText) {
+      Alert.alert('Error', 'No voice input detected');
+      return;
+    }
+
+    const lowerDesc = voiceText.toLowerCase();
+    let matchedRGB: [number, number, number] | null = null;
+
+    for (const [colorName, rgb] of Object.entries(COLOR_MAPPING)) {
+      if (lowerDesc.includes(colorName)) {
+        matchedRGB = rgb;
+        break;
+      }
+    }
+
+    if (!matchedRGB) {
+      Alert.alert('Info', "Couldn't determine soil color from voice input. Please select manually.");
+    }
+
+    const soil = await selectSoilType(voiceText);
     if (soil) {
       await analyzeSoil(soil.rgb[0], soil.rgb[1], soil.rgb[2]);
     }
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <Animated.View entering={FadeIn} style={styles.content}>
-          <BlurView intensity={20} style={styles.card}>
+          <LinearGradient
+            colors={['#2E7D32', '#4CAF50']}
+            style={styles.headerContainer}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
             <View style={styles.header}>
-              <MaterialIcons name="science" size={32} color="#4CAF50" />
+              <MaterialIcons name="grass" size={36} color="#FFFFFF" />
               <Text style={styles.title}>Soil Analysis</Text>
+              <Text style={styles.subtitle}>Get the best crops for your land</Text>
             </View>
+          </LinearGradient>
 
+          <View style={styles.card}>
             <Text style={styles.description}>
-              Analyze your soil sample to get plant recommendations.
+              Analyze your soil sample to get personalized plant recommendations.
             </Text>
 
-            {/* Tab Selector */}
             <View style={styles.tabContainer}>
               <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'image' && styles.activeTab]}
+                style={[styles.tabButton, activeTab === 'image' && styles.activeImageTab]}
                 onPress={() => setActiveTab('image')}
               >
                 <MaterialIcons name="image" size={20} color={activeTab === 'image' ? '#FFFFFF' : '#4CAF50'} />
@@ -280,23 +411,22 @@ export default function SoilScanScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'text' && styles.activeTab]}
+                style={[styles.tabButton, activeTab === 'text' && styles.activeTextTab]}
                 onPress={() => setActiveTab('text')}
               >
-                <MaterialIcons name="text-fields" size={20} color={activeTab === 'text' ? '#FFFFFF' : '#4CAF50'} />
+                <MaterialIcons name="text-fields" size={20} color={activeTab === 'text' ? '#FFFFFF' : '#FF9800'} />
                 <Text style={[styles.tabText, activeTab === 'text' && styles.activeTabText]}>Text</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.tabButton, activeTab === 'voice' && styles.activeTab]}
+                style={[styles.tabButton, activeTab === 'voice' && styles.activeVoiceTab]}
                 onPress={() => setActiveTab('voice')}
               >
-                <MaterialIcons name="keyboard-voice" size={20} color={activeTab === 'voice' ? '#FFFFFF' : '#4CAF50'} />
+                <MaterialIcons name="keyboard-voice" size={20} color={activeTab === 'voice' ? '#FFFFFF' : '#E91E63'} />
                 <Text style={[styles.tabText, activeTab === 'voice' && styles.activeTabText]}>Voice</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Image Tab Content */}
             {activeTab === 'image' && (
               <>
                 {image ? (
@@ -329,17 +459,19 @@ export default function SoilScanScreen() {
                   </View>
                 ) : (
                   <View style={styles.placeholder}>
-                    <MaterialIcons name="photo-camera" size={48} color="#4CAF50" />
+                    <View style={styles.cameraIconContainer}>
+                      <MaterialIcons name="photo-camera" size={48} color="#FFFFFF" />
+                    </View>
                     <Text style={styles.placeholderText}>No image selected</Text>
                     <TouchableOpacity 
-                      style={styles.button}
+                      style={[styles.button, styles.cameraButton]}
                       onPress={takePicture}
                     >
                       <MaterialIcons name="camera-alt" size={24} color="#FFFFFF" />
                       <Text style={styles.buttonText}>Take Photo</Text>
                     </TouchableOpacity>
                     <TouchableOpacity 
-                      style={[styles.button, { marginTop: 10 }]}
+                      style={[styles.button, styles.galleryButton, { marginTop: 10 }]}
                       onPress={pickImage}
                     >
                       <MaterialIcons name="photo-library" size={24} color="#FFFFFF" />
@@ -350,7 +482,6 @@ export default function SoilScanScreen() {
               </>
             )}
 
-            {/* Text Tab Content */}
             {activeTab === 'text' && (
               <View style={styles.textInputContainer}>
                 <Text style={styles.inputLabel}>Describe your soil color:</Text>
@@ -363,7 +494,7 @@ export default function SoilScanScreen() {
                   onChangeText={setSoilDescription}
                 />
                 <TouchableOpacity 
-                  style={styles.button}
+                  style={[styles.button, styles.analyzeTextButton]}
                   onPress={handleTextInputSubmit}
                   disabled={isScanning}
                 >
@@ -375,52 +506,79 @@ export default function SoilScanScreen() {
               </View>
             )}
 
-            {/* Voice Tab Content */}
             {activeTab === 'voice' && (
               <View style={styles.voiceContainer}>
                 <View style={styles.voiceIconContainer}>
-                  <MaterialIcons name="mic" size={48} color="#4CAF50" />
+                  <MaterialIcons 
+                    name={isRecording ? "mic-off" : "mic"} 
+                    size={48} 
+                    color="#FFFFFF" 
+                  />
                 </View>
                 <Text style={styles.voiceInstruction}>
-                  Press the button below and describe your soil color
+                  {isRecording 
+                    ? "Listening... Describe your soil color now"
+                    : "Press the button below and describe your soil color"}
                 </Text>
                 <TouchableOpacity 
-                  style={[styles.button, styles.voiceButton]}
-                  onPress={handleVoiceInputSubmit}
+                  style={[
+                    styles.button, 
+                    styles.voiceButton,
+                    isRecording && styles.recordingActive
+                  ]}
+                  onPress={toggleRecording}
                   disabled={isScanning}
                 >
-                  <MaterialIcons name="keyboard-voice" size={24} color="#FFFFFF" />
+                  <MaterialIcons 
+                    name={isRecording ? "stop" : "keyboard-voice"} 
+                    size={24} 
+                    color="#FFFFFF" 
+                  />
                   <Text style={styles.buttonText}>
-                    {isScanning ? "Processing..." : "Start Recording"}
+                    {isRecording ? "Stop Recording" : "Start Recording"}
                   </Text>
                 </TouchableOpacity>
+                {soilDescription && (
+                  <View style={styles.voiceResultContainer}>
+                    <Text style={styles.voiceResultLabel}>You said:</Text>
+                    <Text style={styles.voiceResultText}>{soilDescription}</Text>
+                  </View>
+                )}
               </View>
             )}
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>pH Level (6.0-7.5):</Text>
-              <TextInput
-                style={styles.textInput}
-                keyboardType="numeric"
-                value={pH}
-                onChangeText={setPH}
-                placeholder="6.5"
-              />
-              
-              <Text style={styles.inputLabel}>Daily Light Hours:</Text>
-              <TextInput
-                style={styles.textInput}
-                keyboardType="numeric"
-                value={lightHours}
-                onChangeText={setLightHours}
-                placeholder="10"
-              />
+            <View style={styles.parametersContainer}>
+              <Text style={styles.sectionTitle}>Soil Parameters</Text>
+              <View style={styles.parameterRow}>
+                <View style={styles.parameterItem}>
+                  <Text style={styles.inputLabel}>pH Level (6.0-7.5):</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    keyboardType="numeric"
+                    value={pH}
+                    onChangeText={setPH}
+                    placeholder="6.5"
+                  />
+                </View>
+                <View style={styles.parameterItem}>
+                  <Text style={styles.inputLabel}>Daily Light Hours:</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    keyboardType="numeric"
+                    value={lightHours}
+                    onChangeText={setLightHours}
+                    placeholder="10"
+                  />
+                </View>
+              </View>
             </View>
 
             {selectedSoil && (
               <View style={styles.selectedSoilContainer}>
+                <Text style={styles.selectedSoilTitle}>Selected Soil Type</Text>
+                <View style={[styles.soilColorPreview, { backgroundColor: `rgb(${selectedSoil.rgb.join(',')})` }]} />
                 <Text style={styles.selectedSoilText}>
-                  Selected Soil: {selectedSoil.name} {selectedSoil.kinyarwandaName && `(${selectedSoil.kinyarwandaName})`}
+                  {selectedSoil.name} {selectedSoil.kinyarwandaName && `(${selectedSoil.kinyarwandaName})`}
                 </Text>
                 <Text style={styles.selectedSoilDesc}>
                   {selectedSoil.description}
@@ -430,32 +588,52 @@ export default function SoilScanScreen() {
 
             {weatherData && (
               <View style={styles.weatherContainer}>
-                <Text style={styles.weatherTitle}>Current Weather</Text>
-                <Text style={styles.weatherText}>
-                  Temperature: {weatherData.temperature}°C
-                </Text>
-                <Text style={styles.weatherText}>
-                  Rainfall: {weatherData.rainfall}mm
-                </Text>
+                <Text style={styles.weatherTitle}>Current Weather Conditions</Text>
+                <View style={styles.weatherRow}>
+                  <MaterialIcons name="device-thermostat" size={24} color="#1565C0" />
+                  <Text style={styles.weatherText}>
+                    Temperature: {weatherData.temperature}°C
+                  </Text>
+                </View>
+                <View style={styles.weatherRow}>
+                  <MaterialIcons name="grain" size={24} color="#1565C0" />
+                  <Text style={styles.weatherText}>
+                    Rainfall: {weatherData.rainfall}mm
+                  </Text>
+                </View>
               </View>
             )}
 
             {recommendations.length > 0 && (
-              <BlurView intensity={20} style={styles.recommendationsContainer}>
-                <Text style={styles.recommendationsTitle}>Recommended Plants</Text>
+              <View style={styles.recommendationsContainer}>
+                <Text style={styles.recommendationsTitle}>Recommended Crops</Text>
                 {recommendations.map((rec, index) => (
-                  <View key={index} style={styles.recommendationItem}>
-                    <Text style={styles.recommendationName}>
-                      {index + 1}. {rec.plant} {rec.kinyarwandaName && `(${rec.kinyarwandaName})`}
-                    </Text>
-                    <Text style={styles.recommendationConfidence}>
-                      {rec.confidence.toFixed(1)}% confidence ({rec.suitability})
-                    </Text>
+                  <View key={index} style={[
+                    styles.recommendationItem,
+                    index === 0 && styles.topRecommendation
+                  ]}>
+                    <View style={styles.recommendationBadge}>
+                      <Text style={styles.recommendationRank}>{index + 1}</Text>
+                    </View>
+                    <View style={styles.recommendationContent}>
+                      <Text style={styles.recommendationName}>
+                        {rec.plant} {rec.kinyarwandaName && `(${rec.kinyarwandaName})`}
+                      </Text>
+                      <View style={styles.confidenceMeter}>
+                        <View style={[
+                          styles.confidenceBar,
+                          { width: `${rec.confidence}%` }
+                        ]} />
+                      </View>
+                      <Text style={styles.recommendationConfidence}>
+                        {rec.confidence.toFixed(1)}% suitable ({rec.suitability})
+                      </Text>
+                    </View>
                   </View>
                 ))}
-              </BlurView>
+              </View>
             )}
-          </BlurView>
+          </View>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -465,47 +643,69 @@ export default function SoilScanScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F9F5',
   },
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 20,
+  },
   content: {
     flex: 1,
+    paddingHorizontal: 15,
+  },
+  headerContainer: {
     padding: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  header: {
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 10,
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#E8F5E9',
+    marginTop: 5,
   },
   card: {
     padding: 20,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#333333',
-    marginLeft: 12,
+    marginBottom: 20,
   },
   description: {
     fontSize: 16,
-    color: '#666666',
-    marginBottom: 24,
+    color: '#455A64',
+    marginBottom: 20,
     lineHeight: 24,
+    textAlign: 'center',
   },
   tabContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 20,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#ECEFF1',
     borderRadius: 12,
     padding: 4,
   },
@@ -514,28 +714,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 10,
+    padding: 12,
     borderRadius: 8,
     gap: 6,
   },
-  activeTab: {
+  activeImageTab: {
     backgroundColor: '#4CAF50',
+  },
+  activeTextTab: {
+    backgroundColor: '#FF9800',
+  },
+  activeVoiceTab: {
+    backgroundColor: '#E91E63',
   },
   tabText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#4CAF50',
   },
   activeTabText: {
     color: '#FFFFFF',
   },
   imageContainer: {
     width: '100%',
-    height: 300,
+    height: 280,
     borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 24,
     backgroundColor: '#E0E0E0',
+    borderWidth: 2,
+    borderColor: '#BDBDBD',
   },
   image: {
     width: '100%',
@@ -543,18 +750,28 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: '100%',
-    height: 300,
+    height: 280,
     borderRadius: 12,
     backgroundColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    padding: 20,
+  },
+  cameraIconContainer: {
+    backgroundColor: '#4CAF50',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 15,
   },
   placeholderText: {
     fontSize: 16,
-    color: '#666666',
-    marginTop: 12,
+    color: '#455A64',
     marginBottom: 20,
+    fontWeight: '500',
   },
   button: {
     flexDirection: 'row',
@@ -563,10 +780,25 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     gap: 8,
+  },
+  cameraButton: {
     backgroundColor: '#4CAF50',
+    width: '100%',
+  },
+  galleryButton: {
+    backgroundColor: '#2196F3',
+    width: '100%',
+  },
+  analyzeTextButton: {
+    backgroundColor: '#FF9800',
+    width: '100%',
   },
   voiceButton: {
-    marginTop: 20,
+    backgroundColor: '#E91E63',
+    width: '100%',
+  },
+  recordingActive: {
+    backgroundColor: '#C2185B',
   },
   buttonText: {
     color: '#FFFFFF',
@@ -597,39 +829,52 @@ const styles = StyleSheet.create({
   analyzeButton: {
     backgroundColor: '#4CAF50',
   },
-  inputContainer: {
+  parametersContainer: {
     marginVertical: 16,
   },
-  textInputContainer: {
-    marginBottom: 24,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#37474F',
+    marginBottom: 12,
+  },
+  parameterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  parameterItem: {
+    width: '48%',
   },
   inputLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#333333',
+    color: '#455A64',
     marginBottom: 8,
   },
   textInput: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: 12,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: '#B0BEC5',
     marginBottom: 16,
+  },
+  textInputContainer: {
+    marginBottom: 24,
   },
   voiceContainer: {
     width: '100%',
-    height: 300,
+    height: 280,
     borderRadius: 12,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#F3E5F5',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
     padding: 20,
   },
   voiceIconContainer: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#E91E63',
     width: 100,
     height: 100,
     borderRadius: 50,
@@ -639,64 +884,149 @@ const styles = StyleSheet.create({
   },
   voiceInstruction: {
     fontSize: 16,
-    color: '#666666',
+    color: '#7B1FA2',
     textAlign: 'center',
     marginBottom: 20,
+    fontWeight: '500',
+  },
+  voiceResultContainer: {
+    marginTop: 20,
+    padding: 12,
+    backgroundColor: '#EDE7F6',
+    borderRadius: 8,
+    width: '100%',
+  },
+  voiceResultLabel: {
+    fontSize: 14,
+    color: '#5E35B1',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  voiceResultText: {
+    fontSize: 14,
+    color: '#4527A0',
   },
   selectedSoilContainer: {
     marginTop: 16,
-    padding: 12,
+    padding: 16,
     backgroundColor: '#E8F5E9',
-    borderRadius: 8,
+    borderRadius: 12,
+    borderLeftWidth: 6,
+    borderLeftColor: '#2E7D32',
+  },
+  selectedSoilTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1B5E20',
+    marginBottom: 10,
+  },
+  soilColorPreview: {
+    width: '100%',
+    height: 30,
+    borderRadius: 6,
+    marginBottom: 10,
   },
   selectedSoilText: {
     color: '#2E7D32',
     fontWeight: '600',
+    fontSize: 16,
   },
   selectedSoilDesc: {
     color: '#2E7D32',
     fontSize: 14,
-    marginTop: 4,
+    marginTop: 6,
   },
   weatherContainer: {
     marginTop: 16,
-    padding: 12,
+    padding: 16,
     backgroundColor: '#E3F2FD',
-    borderRadius: 8,
+    borderRadius: 12,
+    borderLeftWidth: 6,
+    borderLeftColor: '#1565C0',
   },
   weatherTitle: {
-    color: '#1565C0',
-    fontWeight: '600',
+    color: '#0D47A1',
+    fontWeight: '700',
+    marginBottom: 12,
+    fontSize: 16,
+  },
+  weatherRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
   },
   weatherText: {
     color: '#1565C0',
+    marginLeft: 8,
+    fontSize: 15,
   },
   recommendationsContainer: {
     marginTop: 20,
     padding: 16,
     borderRadius: 12,
+    backgroundColor: '#FFF8E1',
   },
   recommendationsTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 12,
+    color: '#FF8F00',
+    marginBottom: 16,
   },
   recommendationItem: {
-    marginBottom: 10,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  topRecommendation: {
+    borderWidth: 2,
+    borderColor: '#FFC107',
+    backgroundColor: '#FFFDE7',
+  },
+  recommendationBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  recommendationRank: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  recommendationContent: {
+    flex: 1,
   },
   recommendationName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#37474F',
+    marginBottom: 4,
+  },
+  confidenceMeter: {
+    height: 6,
+    backgroundColor: '#ECEFF1',
+    borderRadius: 3,
+    marginBottom: 6,
+    overflow: 'hidden',
+  },
+  confidenceBar: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 3,
   },
   recommendationConfidence: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    fontSize: 13,
+    color: '#78909C',
   },
 });
