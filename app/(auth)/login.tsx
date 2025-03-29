@@ -23,7 +23,7 @@ export default function LoginScreen() {
         style={styles.header}
       >
         <Image 
-          source={require('../../assets/images/logo.png')}
+          source={require('../../assets/logo.png')}
           style={styles.logo}
         />
         <Text style={styles.title}>Welcome Back!</Text>
