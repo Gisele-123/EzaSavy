@@ -29,8 +29,7 @@ type StatCard = {
 
 export default function HomeScreen() {
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
-  const userName = "John"; // This would come from your auth context
-
+  const userName = "Gisele"; 
   const quickActions: QuickAction[] = [
     {
       icon: 'camera-alt',
@@ -110,7 +109,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/(tabs)/profile')}
             >
         <Image
-                source={require('../../assets/images/profile-placeholder.png')}
+                source={require('../../assets/images/profile.jpg')}
                 style={styles.profileImage}
               />
             </TouchableOpacity>
