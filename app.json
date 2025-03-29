@@ -32,7 +32,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-av",
+      "expo-image-picker"
     ],
     "experiments": {
       "typedRoutes": true
