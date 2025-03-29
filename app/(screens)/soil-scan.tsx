@@ -21,10 +21,10 @@ type SoilType = {
 };
 
 const SOIL_TYPES: SoilType[] = [
-  { name: 'Dark Brown', rgb: [120, 80, 50], description: 'Rich, fertile soil with high organic content' },
-  { name: 'Light Brown', rgb: [180, 150, 100], description: 'Sandy soil with moderate fertility' },
+  { name: 'Black', rgb: [120, 80, 50], description: 'Rich, fertile soil with high organic content' },
+  { name: 'Gray', rgb: [180, 150, 100], description: 'Sandy soil with moderate fertility' },
   { name: 'Red', rgb: [200, 100, 80], description: 'Clay-rich soil with good drainage' },
-  { name: 'Black', rgb: [50, 50, 50], description: 'Very rich soil with high organic matter' },
+  { name: 'Alluvial', rgb: [50, 50, 50], description: 'Very rich soil with high organic matter' },
 ];
 
 export default function SoilScanScreen() {
