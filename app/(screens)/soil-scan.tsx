@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -84,17 +84,29 @@ export default function SoilScanScreen() {
   const [lightHours, setLightHours] = useState('10');
   const [activeTab, setActiveTab] = useState<'image' | 'text' | 'voice'>('image');
   const [soilDescription, setSoilDescription] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  
+  // Voice recording states
+  const [recordingStatus, setRecordingStatus] = useState<'idle' | 'recording' | 'recorded'>('idle');
+  const [recordedAudioURI, setRecordedAudioURI] = useState<string | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+
+  // Clean up audio resources
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync();
+      }
+    };
+  }, [sound]);
 
   useEffect(() => {
     fetchWeatherData();
     requestMicrophonePermission();
-    return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync();
-      }
-    };
   }, []);
 
   const requestMicrophonePermission = async () => {
@@ -285,9 +297,15 @@ export default function SoilScanScreen() {
     }
   };
 
+  // Voice recording functions
   const startRecording = async () => {
     try {
-      await Audio.requestPermissionsAsync();
+      const hasPermission = await requestMicrophonePermission();
+      if (!hasPermission) {
+        Alert.alert('Permission required', 'Microphone permission is needed to record audio');
+        return;
+      }
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -296,8 +314,10 @@ export default function SoilScanScreen() {
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      setRecording(recording);
-      setIsRecording(true);
+      recordingRef.current = recording;
+      setRecordingStatus('recording');
+      setRecordedAudioURI(null);
+      setSoilDescription('');
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('Error', 'Failed to start recording. Please check microphone permissions.');
@@ -305,53 +325,101 @@ export default function SoilScanScreen() {
   };
 
   const stopRecording = async () => {
-    setIsRecording(false);
-    if (!recording) return;
-
     try {
-      await recording.stopAndUnloadAsync();
+      if (!recordingRef.current) return;
+
+      await recordingRef.current.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
       });
 
-      // Here you would send the recording to your backend for processing
-      // For now, we'll simulate voice recognition with a prompt
-      simulateVoiceRecognition();
+      const uri = recordingRef.current.getURI();
+      if (uri) {
+        setRecordedAudioURI(uri);
+        setRecordingStatus('recorded');
+        simulateVoiceRecognition(uri);
+      }
     } catch (err) {
       console.error('Failed to stop recording', err);
+      Alert.alert('Error', 'Failed to stop recording');
     }
   };
 
-  const simulateVoiceRecognition = () => {
+  const playRecording = async () => {
+    if (!recordedAudioURI) return;
+
+    try {
+      if (sound) {
+        await sound.unloadAsync();
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: recordedAudioURI },
+        { shouldPlay: true }
+      );
+      setSound(newSound);
+
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded) {
+          setIsPlaying(status.isPlaying);
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+          }
+        }
+      });
+
+      await newSound.playAsync();
+    } catch (err) {
+      console.error('Failed to play recording', err);
+      Alert.alert('Error', 'Failed to play recording');
+    }
+  };
+
+  const stopPlayback = async () => {
+    if (sound) {
+      await sound.stopAsync();
+      setIsPlaying(false);
+    }
+  };
+
+  const simulateVoiceRecognition = async (uri: string) => {
+    // In a real app, you would send the audio file to your backend for transcription
+    // For now, we'll simulate it with a prompt
+    
     Alert.prompt(
-      'Voice Input',
-      'Enter what you said about your soil color (simulated voice recognition)',
+      'Voice Input Confirmation',
+      'We heard you say: (Edit if incorrect)',
       [
         {
           text: 'Cancel',
           style: 'cancel',
+          onPress: () => {
+            setRecordingStatus('idle');
+            setRecordedAudioURI(null);
+          }
         },
         {
-          text: 'Submit',
+          text: 'Use This',
           onPress: (text) => {
             if (text) {
               setSoilDescription(text);
-              handleVoiceInputSubmit(text);
+              setRecordingStatus('recorded');
             }
           },
         },
       ],
-      'plain-text'
+      'plain-text',
+      soilDescription || 'dark brown soil with good drainage'
     );
   };
 
-  const handleVoiceInputSubmit = async (voiceText?: string) => {
-    if (!voiceText) {
-      Alert.alert('Error', 'No voice input detected');
+  const handleVoiceInputSubmit = async () => {
+    if (!soilDescription.trim()) {
+      Alert.alert('Error', 'No voice input detected or transcribed');
       return;
     }
 
-    const lowerDesc = voiceText.toLowerCase();
+    const lowerDesc = soilDescription.toLowerCase();
     let matchedRGB: [number, number, number] | null = null;
 
     for (const [colorName, rgb] of Object.entries(COLOR_MAPPING)) {
@@ -365,18 +433,21 @@ export default function SoilScanScreen() {
       Alert.alert('Info', "Couldn't determine soil color from voice input. Please select manually.");
     }
 
-    const soil = await selectSoilType(voiceText);
+    const soil = await selectSoilType(soilDescription);
     if (soil) {
       await analyzeSoil(soil.rgb[0], soil.rgb[1], soil.rgb[2]);
     }
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
+  const resetRecording = () => {
+    setRecordingStatus('idle');
+    setRecordedAudioURI(null);
+    setSoilDescription('');
+    if (sound) {
+      sound.unloadAsync();
+      setSound(null);
     }
+    setIsPlaying(false);
   };
 
   return (
@@ -510,39 +581,92 @@ export default function SoilScanScreen() {
               <View style={styles.voiceContainer}>
                 <View style={styles.voiceIconContainer}>
                   <MaterialIcons 
-                    name={isRecording ? "mic-off" : "mic"} 
+                    name={recordingStatus === 'recording' ? "mic-off" : "mic"} 
                     size={48} 
                     color="#FFFFFF" 
                   />
                 </View>
+                
                 <Text style={styles.voiceInstruction}>
-                  {isRecording 
+                  {recordingStatus === 'recording' 
                     ? "Listening... Describe your soil color now"
-                    : "Press the button below and describe your soil color"}
+                    : recordingStatus === 'recorded'
+                      ? "Recording complete!"
+                      : "Press the button below and describe your soil color"}
                 </Text>
+
+                {recordingStatus === 'recorded' && recordedAudioURI && (
+                  <View style={styles.recordingControls}>
+                    <TouchableOpacity 
+                      style={[styles.smallButton, styles.playButton]}
+                      onPress={isPlaying ? stopPlayback : playRecording}
+                    >
+                      <MaterialIcons 
+                        name={isPlaying ? "stop" : "play-arrow"} 
+                        size={20} 
+                        color="#FFFFFF" 
+                      />
+                      <Text style={styles.smallButtonText}>
+                        {isPlaying ? "Stop" : "Play"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={[styles.smallButton, styles.retakeButton]}
+                      onPress={resetRecording}
+                    >
+                      <MaterialIcons name="refresh" size={20} color="#FFFFFF" />
+                      <Text style={styles.smallButtonText}>Retake</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {soilDescription && (
+                  <View style={styles.voiceResultContainer}>
+                    <Text style={styles.voiceResultLabel}>Transcription:</Text>
+                    <TextInput
+                      style={styles.voiceResultTextInput}
+                      value={soilDescription}
+                      onChangeText={setSoilDescription}
+                      multiline
+                    />
+                  </View>
+                )}
+
                 <TouchableOpacity 
                   style={[
                     styles.button, 
                     styles.voiceButton,
-                    isRecording && styles.recordingActive
+                    recordingStatus === 'recording' && styles.recordingActive,
+                    recordingStatus === 'recorded' && styles.recordedActive
                   ]}
-                  onPress={toggleRecording}
-                  disabled={isScanning}
+                  onPress={recordingStatus === 'recording' ? stopRecording : startRecording}
                 >
                   <MaterialIcons 
-                    name={isRecording ? "stop" : "keyboard-voice"} 
+                    name={recordingStatus === 'recording' ? "stop" : "keyboard-voice"} 
                     size={24} 
                     color="#FFFFFF" 
                   />
                   <Text style={styles.buttonText}>
-                    {isRecording ? "Stop Recording" : "Start Recording"}
+                    {recordingStatus === 'recording' 
+                      ? "Stop Recording" 
+                      : recordingStatus === 'recorded'
+                        ? "Record Again"
+                        : "Start Recording"}
                   </Text>
                 </TouchableOpacity>
-                {soilDescription && (
-                  <View style={styles.voiceResultContainer}>
-                    <Text style={styles.voiceResultLabel}>You said:</Text>
-                    <Text style={styles.voiceResultText}>{soilDescription}</Text>
-                  </View>
+
+                {recordingStatus === 'recorded' && (
+                  <TouchableOpacity 
+                    style={[styles.button, styles.analyzeButton]}
+                    onPress={handleVoiceInputSubmit}
+                    disabled={isScanning}
+                  >
+                    <MaterialIcons name="science" size={24} color="#FFFFFF" />
+                    <Text style={styles.buttonText}>
+                      {isScanning ? "Analyzing..." : "Analyze Recording"}
+                    </Text>
+                  </TouchableOpacity>
                 )}
               </View>
             )}
@@ -800,6 +924,9 @@ const styles = StyleSheet.create({
   recordingActive: {
     backgroundColor: '#C2185B',
   },
+  recordedActive: {
+    backgroundColor: '#9C27B0',
+  },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -889,6 +1016,33 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     fontWeight: '500',
   },
+  recordingControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 15,
+    width: '100%',
+  },
+  smallButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 8,
+    gap: 6,
+    flex: 1,
+  },
+  playButton: {
+    backgroundColor: '#4CAF50',
+  },
+  // retakeButton: {
+  //   backgroundColor: '#F44336',
+  // },
+  smallButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   voiceResultContainer: {
     marginTop: 20,
     padding: 12,
@@ -902,9 +1056,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
-  voiceResultText: {
-    fontSize: 14,
+  voiceResultTextInput: {
+    backgroundColor: '#EDE7F6',
+    borderRadius: 8,
+    padding: 10,
     color: '#4527A0',
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginTop: 5,
   },
   selectedSoilContainer: {
     marginTop: 16,
